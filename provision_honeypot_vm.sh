@@ -57,11 +57,8 @@ get_image_virtual_size_bytes() {
   local path="$1"
   # Essayer json via python3
   if command -v python3 >/dev/null 2>&1; then
-    qemu-img info --output json "$path" 2>/dev/null | python3 - <<'PY'
-import sys, json
-data = json.load(sys.stdin)
-print(int(data.get('virtual-size', 0)))
-PY
+    qemu-img info --output json "$path" 2>/dev/null | \
+      python3 -c 'import sys,json; data=json.load(sys.stdin); print(int(data.get("virtual-size",0)))'
     return $?
   fi
   # Fallback: grep virtual size
@@ -346,7 +343,7 @@ fi
 # Redimensionner le disque si demandé (sécurisé)
 if [[ -n "${DISK_SIZE}" ]]; then
   cur_bytes=$(get_image_virtual_size_bytes "${IMAGE_PATH}" || echo "")
-  tgt_bytes=$(size_to_bytes <<<"${DISK_SIZE}" || echo "")
+  tgt_bytes=$(size_to_bytes "${DISK_SIZE}" || echo "")
   if [[ -z "$cur_bytes" || -z "$tgt_bytes" ]]; then
     log_warn "Impossible de déterminer les tailles actuelles/cibles, tentative de resize direct à ${DISK_SIZE}"
     run "Resize disque QCOW2 (best-effort)" qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
