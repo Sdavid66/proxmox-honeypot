@@ -12,7 +12,10 @@ log_info() { echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $*"; }
 
 # Convertit des tailles humaines (ex: 8G, 10240M) en octets
 size_to_bytes() {
-  local s="$1"
+  local s="${1-}"
+  if [[ -z "$s" ]]; then
+    return 1
+  fi
   # Utiliser python3 si dispo pour plus de robustesse
   if command -v python3 >/dev/null 2>&1; then
     python3 - <<'PY'
@@ -57,8 +60,18 @@ get_image_virtual_size_bytes() {
   local path="$1"
   # Essayer json via python3
   if command -v python3 >/dev/null 2>&1; then
-    qemu-img info --output json "$path" 2>/dev/null | \
-      python3 -c 'import sys,json; data=json.load(sys.stdin); print(int(data.get("virtual-size",0)))'
+    local info_json
+    info_json=$(qemu-img info --output json "$path" 2>/dev/null || true)
+    if [[ -z "$info_json" ]]; then
+      echo ""
+      return 1
+    fi
+    printf '%s' "$info_json" | python3 -c 'import sys,json; s=sys.stdin.read().strip();
+try:
+    d=json.loads(s) if s else {}
+    print(int(d.get("virtual-size",0)))
+except Exception:
+    sys.exit(1)'
     return $?
   fi
   # Fallback: grep virtual size
