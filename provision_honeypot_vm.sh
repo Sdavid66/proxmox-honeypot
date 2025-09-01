@@ -215,6 +215,16 @@ if [[ -n "${SSH_PUBKEY_PATH}" && ! -f "${SSH_PUBKEY_PATH}" ]]; then
   exit 1
 fi
 
+# Validation bridge réseau
+if ! ip link show "${BRIDGE}" >/dev/null 2>&1; then
+  log_err "Le bridge '${BRIDGE}' n'existe pas sur ce nœud Proxmox."
+  echo "\nSuggestions:" >&2
+  echo "- Utilisez un bridge existant (ex: --bridge vmbr0)" >&2
+  echo "- Ou créez le bridge '${BRIDGE}' via l'UI (Datacenter > Node > System > Network)" >&2
+  echo "  et appliquez la configuration réseau (ifreload -a) avant de relancer." >&2
+  exit 1
+fi
+
 # Préparation
 mkdir -p "${WORKDIR}"
 IMAGE_PATH="${WORKDIR}/debian-12.qcow2"
