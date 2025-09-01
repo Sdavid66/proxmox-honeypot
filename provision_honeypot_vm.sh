@@ -1,6 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Couleurs et helpers de log
+COLOR_RED="\033[0;31m"
+COLOR_GREEN="\033[0;32m"
+COLOR_YELLOW="\033[0;33m"
+COLOR_BLUE="\033[0;34m"
+COLOR_RESET="\033[0m"
+
+log_info() { echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $*"; }
+log_warn() { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
+log_ok()   { echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}  $*"; }
+log_err()  { echo -e "${COLOR_RED}[ERREUR]${COLOR_RESET} $*"; }
+
+run() {
+  local desc="$1"; shift
+  echo -ne "${COLOR_BLUE}[*]${COLOR_RESET} ${desc} ... "
+  if "$@"; then
+    echo -e "${COLOR_GREEN}OK${COLOR_RESET}"
+  else
+    echo -e "${COLOR_RED}ECHEC${COLOR_RESET}"
+    log_err "Echec lors de: ${desc}"
+    exit 1
+  fi
+}
+
 # ------------------------------------------------------------
 # Provision d'une VM Proxmox (PVE) prête pour un honeypot (Cowrie)
 # - S'exécute SUR le noeud Proxmox (root@pve)
@@ -53,6 +77,8 @@ DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-1
 WORKDIR="/tmp/pve-honeypot-build"
 SNIPPET_NAME_PREFIX="honeypot"
 ENABLE_QGA=true                  # qemu-guest-agent
+START_VM=false                   # démarrage auto de la VM
+WAIT_CLOUDINIT=false             # attendre la fin cloud-init (nécessite QGA)
 
 usage() {
   cat <<EOF
@@ -86,6 +112,8 @@ Cloud-init utilisateur:
 
 Divers:
   --no-qga                    Ne pas activer qemu-guest-agent
+  --start                     Démarrer la VM automatiquement à la fin
+  --wait-cloudinit            Attendre la fin de cloud-init (avec QGA)
   -h | --help                 Afficher l'aide
 EOF
 }
@@ -112,6 +140,8 @@ while [[ $# -gt 0 ]]; do
     --ci-pass) CI_PASSWORD="$2"; shift 2 ;;
     --ssh-pubkey) SSH_PUBKEY_PATH="$2"; shift 2 ;;
     --no-qga) ENABLE_QGA=false; shift ;;
+    --start) START_VM=true; shift ;;
+    --wait-cloudinit) WAIT_CLOUDINIT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Option inconnue: $1"; usage; exit 1 ;;
   esac
@@ -145,16 +175,21 @@ IMAGE_PATH="${WORKDIR}/debian-12.qcow2"
 SNIPPET_DIR="/var/lib/vz/snippets"
 USER_SNIPPET_PATH="${SNIPPET_DIR}/${SNIPPET_NAME_PREFIX}-${VMID}-user.yaml"
 
+log_info "Dossier de travail: ${WORKDIR}"
+run "Création du dossier de travail" mkdir -p "${WORKDIR}"
+
 # Téléchargement image si besoin
 if [[ ! -f "${IMAGE_PATH}" ]]; then
-  echo "[INFO] Téléchargement de l'image Debian 12 cloud..."
-  curl -fL "${DEBIAN_IMAGE_URL}" -o "${IMAGE_PATH}"
+  log_info "Téléchargement de l'image Debian 12 cloud"
+  run "Téléchargement image Debian 12" curl -fL "${DEBIAN_IMAGE_URL}" -o "${IMAGE_PATH}"
+else
+  log_info "Image Debian trouvée en cache: ${IMAGE_PATH}"
 fi
 
 # Redimensionner le disque si demandé
 if [[ -n "${DISK_SIZE}" ]]; then
-  echo "[INFO] Redimensionnement de l'image à ${DISK_SIZE}"
-  qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
+  log_info "Redimensionnement de l'image à ${DISK_SIZE}"
+  run "Resize disque QCOW2" qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
 fi
 
 # Créer la VM basique
@@ -163,8 +198,8 @@ if [[ -n "${VLAN_TAG}" ]]; then
   NETCONF+=",tag=${VLAN_TAG}"
 fi
 
-echo "[INFO] Création de la VM ${VMID} (${NAME})"
-qm create "${VMID}" \
+log_info "Création de la VM ${VMID} (${NAME})"
+run "qm create ${VMID}" qm create "${VMID}" \
   --name "${NAME}" \
   --memory "${MEMORY_MB}" \
   --cores "${CORES}" \
@@ -176,23 +211,23 @@ qm create "${VMID}" \
   --vga serial0
 
 # Import du disque
-echo "[INFO] Import du disque dans ${STORAGE}"
-qm importdisk "${VMID}" "${IMAGE_PATH}" "${STORAGE}" --format qcow2
+log_info "Import du disque dans ${STORAGE}"
+run "Import du disque" qm importdisk "${VMID}" "${IMAGE_PATH}" "${STORAGE}" --format qcow2
 
 # Attacher le disque comme scsi0 et définir boot order
-qm set "${VMID}" --scsi0 "${STORAGE}:vm-${VMID}-disk-0"
-qm set "${VMID}" --boot order=scsi0
+run "Attache disque scsi0" qm set "${VMID}" --scsi0 "${STORAGE}:vm-${VMID}-disk-0"
+run "Configure boot order" qm set "${VMID}" --boot order=scsi0
 
 # Ajouter lecteur cloud-init
-qm set "${VMID}" --ide2 "${STORAGE}:cloudinit"
+run "Ajout lecteur cloud-init" qm set "${VMID}" --ide2 "${STORAGE}:cloudinit"
 
 # Activer QGA si demandé
 if [[ "${ENABLE_QGA}" == true ]]; then
-  qm set "${VMID}" --agent enabled=1,fstrim_cloned_disks=1
+  run "Activation Qemu Guest Agent" qm set "${VMID}" --agent enabled=1,fstrim_cloned_disks=1
 fi
 
 # Construire le snippet cloud-init user-data
-mkdir -p "${SNIPPET_DIR}"
+run "Création dossier snippets" mkdir -p "${SNIPPET_DIR}"
 
 SSHKEYS_CONTENT=""
 if [[ -n "${SSH_PUBKEY_PATH}" ]]; then
@@ -265,24 +300,45 @@ EOF
 
 # Appliquer config réseau/ssh/dns à la VM via qm set
 if [[ -n "${DNS_SERVERS}" ]]; then
-  qm set "${VMID}" --nameserver "${DNS_SERVERS}"
+  run "Configurer DNS" qm set "${VMID}" --nameserver "${DNS_SERVERS}"
 fi
 if [[ -n "${DNS_SEARCH}" ]]; then
-  qm set "${VMID}" --searchdomain "${DNS_SEARCH}"
+  run "Configurer searchdomain" qm set "${VMID}" --searchdomain "${DNS_SEARCH}"
 fi
-qm set "${VMID}" --ciuser "${CI_USER}"
+run "Configurer ciuser" qm set "${VMID}" --ciuser "${CI_USER}"
 if [[ -n "${CI_PASSWORD}" ]]; then
-  qm set "${VMID}" --cipassword "${CI_PASSWORD}"
+  run "Configurer cipassword" qm set "${VMID}" --cipassword "${CI_PASSWORD}"
 fi
 if [[ -n "${SSHKEYS_CONTENT}" ]]; then
-  qm set "${VMID}" --sshkeys "${SSH_PUBKEY_PATH}"
+  run "Configurer sshkeys" qm set "${VMID}" --sshkeys "${SSH_PUBKEY_PATH}"
 fi
 
 # Lier le snippet user-data
-qm set "${VMID}" --cicustom "user=${CI_STORAGE}:snippets/$(basename "${USER_SNIPPET_PATH}")"
+run "Liaison user-data (cicustom)" qm set "${VMID}" --cicustom "user=${CI_STORAGE}:snippets/$(basename "${USER_SNIPPET_PATH}")"
 
 # Config IP
-qm set "${VMID}" --ipconfig0 "${IPCONFIG}"
+run "Configuration IP (ipconfig0)" qm set "${VMID}" --ipconfig0 "${IPCONFIG}"
+
+# Démarrage automatique et attente QGA/cloud-init
+if [[ "${START_VM}" == true ]]; then
+  run "Démarrage de la VM" qm start "${VMID}"
+  if [[ "${WAIT_CLOUDINIT}" == true && "${ENABLE_QGA}" == true ]]; then
+    log_info "Attente de l'agent QEMU (QGA) jusqu'à 300s"
+    QGA_UP=false
+    for i in $(seq 1 60); do
+      if qm agent "${VMID}" ping >/dev/null 2>&1; then
+        QGA_UP=true; break
+      fi
+      sleep 5
+    done
+    if [[ "${QGA_UP}" == true ]]; then
+      log_ok "QGA disponible. Vous pouvez suivre cloud-init dans la VM."
+      log_info "Conseil: journalctl -u cloud-init -n 200 --no-pager (dans la VM)"
+    else
+      log_warn "QGA non disponible après délai. Cloud-init continue probablement en tâche de fond."
+    fi
+  fi
+fi
 
 # Conseils finaux
 cat <<EON

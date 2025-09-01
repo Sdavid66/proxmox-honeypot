@@ -25,7 +25,7 @@ chmod +x provision_honeypot_vm.sh
 
 ## Utilisation
 
-Exemple complet (IP statique):
+Exemple complet (IP statique) avec démarrage auto et attente cloud-init:
 
 ```bash
 ./provision_honeypot_vm.sh \
@@ -41,7 +41,9 @@ Exemple complet (IP statique):
   --ip 192.168.30.50/24 \
   --gw 192.168.30.1 \
   --dns "1.1.1.1 8.8.8.8" \
-  --ssh-pubkey /root/.ssh/id_rsa.pub
+  --ssh-pubkey /root/.ssh/id_rsa.pub \
+  --start \
+  --wait-cloudinit
 ```
 
 Exemple en DHCP:
@@ -72,6 +74,8 @@ Paramètres principaux:
 - DNS: `--dns "IP [IP...]"` et `--dns-search <domain>`.
 - Cloud-init user: `--ci-user`, `--ci-pass`, `--ssh-pubkey <path>`.
 - `--no-qga` pour désactiver qemu-guest-agent.
+ - `--start` pour démarrer automatiquement la VM à la fin du script.
+ - `--wait-cloudinit` pour attendre la disponibilité de l'agent QEMU et indiquer l'état cloud-init (si QGA activé).
 
 ## Ce que fait le script
 
@@ -82,6 +86,7 @@ Paramètres principaux:
 - Configure réseau (DHCP ou IP statique), DNS, utilisateur cloud-init et clés SSH.
  - Déplace le SSH système sur le port `2222` (non exposé par UFW) pour éviter le conflit avec Cowrie sur `22`.
  - Applique une politique UFW finale: `deny outgoing` et `deny incoming` (sauf loopback). La VM ne peut plus initier de connexions sortantes.
+ - Affiche un suivi d'exécution coloré (vert=OK, rouge=échec) pour chaque étape clé (création VM, import disque, configuration cloud-init, etc.).
 
 ## Démarrage et vérifications
 
