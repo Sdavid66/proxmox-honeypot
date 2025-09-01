@@ -441,6 +441,7 @@ users:
 
 package_update: true
 packages:
+  - qemu-guest-agent
   - git
   - python3
   - python3-venv
@@ -453,6 +454,7 @@ packages:
   - ufw
 
 runcmd:
+  - [ bash, -lc, "systemctl enable --now qemu-guest-agent || true" ]
   - [ bash, -lc, "set -euo pipefail; id ${CI_USER} || true" ]
   - [ bash, -lc, "ufw default deny incoming && ufw default allow outgoing && ufw allow 22 && ufw --force enable" ]
   - [ bash, -lc, "adduser --disabled-password --gecos '' cowrie || true" ]
