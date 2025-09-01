@@ -30,6 +30,15 @@ Par défaut:
 - VMID est auto-sélectionné (premier ID libre dans Proxmox). Vous pouvez toujours forcer via `--vmid <ID>`.
 - Si aucune IP n'est fournie, la VM utilisera DHCP. Si QGA est activé, le script tentera d'afficher l'IP détectée après démarrage.
 
+Note importante (taille disque et image cache):
+
+- Si une image cache existe déjà sur le nœud (ex: `/tmp/pve-honeypot-build/debian-12.qcow2`) et qu'elle est plus grande que votre cible, spécifiez `--disk` avec une taille ≥ à l'image existante (ex: `--disk 10G`).
+- Alternative: supprimez l'image cache puis relancez à la taille désirée (par défaut 8G):
+
+```bash
+rm -f /tmp/pve-honeypot-build/debian-12.qcow2
+```
+
 Exemple complet (IP statique) avec démarrage auto et attente cloud-init:
 
 ```bash
