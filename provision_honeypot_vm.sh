@@ -276,6 +276,15 @@ if [[ -n "${SSH_PUBKEY_PATH}" && ! -f "${SSH_PUBKEY_PATH}" ]]; then
   exit 1
 fi
 
+# Pré-checks outils et stockage
+if [[ $(id -u) -ne 0 ]]; then
+  log_err "Ce script doit être exécuté en root sur un nœud Proxmox."
+  exit 1
+fi
+command -v pvesh >/dev/null 2>&1 || { log_err "pvesh introuvable. Exécuter sur un nœud Proxmox."; exit 1; }
+command -v qm >/dev/null 2>&1 || { log_err "qm introuvable. Exécuter sur un nœud Proxmox."; exit 1; }
+command -v pvesm >/dev/null 2>&1 || { log_err "pvesm introuvable. Exécuter sur un nœud Proxmox."; exit 1; }
+
 # Validation bridge réseau
 if ! ip link show "${BRIDGE}" >/dev/null 2>&1; then
   log_err "Le bridge '${BRIDGE}' n'existe pas sur ce nœud Proxmox."
@@ -285,6 +294,37 @@ if ! ip link show "${BRIDGE}" >/dev/null 2>&1; then
   echo "  et appliquez la configuration réseau (ifreload -a) avant de relancer." >&2
   exit 1
 fi
+
+# Validation des stockages
+log_info "Validation des stockages"
+# Vérifier le stockage disque (images)
+if ! pvesm status | awk 'NR>1{print $1}' | grep -qx "${STORAGE}"; then
+  log_err "Le stockage --storage='${STORAGE}' est introuvable."; pvesm status | awk 'NR==1 || NR>1{print $1, $2, $3, $4}' >&2 || true; exit 1
+fi
+STORAGE_CONTENTS=$(pvesm config "${STORAGE}" 2>/dev/null | awk -F': ' '/^\s*content:/{print $2}' || true)
+if [[ -n "${STORAGE_CONTENTS}" ]] && ! echo "${STORAGE_CONTENTS}" | grep -qw "images"; then
+  log_err "Le stockage '${STORAGE}' ne supporte pas le contenu 'images'. Contenu actuel: ${STORAGE_CONTENTS}"
+  exit 1
+fi
+log_ok "Stockage '${STORAGE}' prêt (images)"
+
+# Vérifier CI_STORAGE et activer snippets si nécessaire
+if [[ "${CI_STORAGE}" != "local" ]]; then
+  log_warn "--ci-storage='${CI_STORAGE}' fourni, mais ce script écrit dans '/var/lib/vz/snippets' (stockage 'local'). Utilisation forcée de CI_STORAGE='local'."
+  CI_STORAGE="local"
+fi
+if ! pvesm status | awk 'NR>1{print $1}' | grep -qx "${CI_STORAGE}"; then
+  log_err "Le stockage CI '${CI_STORAGE}' est introuvable."; exit 1
+fi
+CI_CONTENTS=$(pvesm config "${CI_STORAGE}" 2>/dev/null | awk -F': ' '/^\s*content:/{print $2}' || true)
+if ! echo "${CI_CONTENTS}" | grep -qw "snippets"; then
+  log_warn "Activation du contenu 'snippets' sur '${CI_STORAGE}'"
+  if ! pvesm set "${CI_STORAGE}" --content "images,iso,backup,vztmpl,snippets" >/dev/null 2>&1; then
+    log_err "Impossible d'activer 'snippets' sur '${CI_STORAGE}'"
+    exit 1
+  fi
+fi
+log_ok "Snippets disponibles sur '${CI_STORAGE}'"
 
 # Préparation
 mkdir -p "${WORKDIR}"
