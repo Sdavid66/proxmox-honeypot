@@ -9,6 +9,64 @@ COLOR_BLUE="\033[0;34m"
 COLOR_RESET="\033[0m"
 
 log_info() { echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $*"; }
+
+# Convertit des tailles humaines (ex: 8G, 10240M) en octets
+size_to_bytes() {
+  local s="$1"
+  # Utiliser python3 si dispo pour plus de robustesse
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import sys, re
+s = sys.stdin.read().strip()
+m = re.fullmatch(r"(?i)\s*(\d+(?:\.\d+)?)\s*([KMGTP]?B?)?\s*", s)
+if not m:
+    sys.exit(1)
+val = float(m.group(1))
+unit = (m.group(2) or '').upper().rstrip('B')
+mult = {
+    '': 1,
+    'K': 1024,
+    'M': 1024**2,
+    'G': 1024**3,
+    'T': 1024**4,
+    'P': 1024**5,
+}.get(unit, None)
+if mult is None:
+    sys.exit(1)
+print(int(val * mult))
+PY
+    return $?
+  fi
+  # Fallback bash simple (K/M/G)
+  s=$(echo "$s" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+  local num unit
+  num=${s%%[KMGTPB]*}
+  unit=${s#$num}
+  case "$unit" in
+    K* ) echo $((num*1024)) ;;
+    M* ) echo $((num*1024*1024)) ;;
+    G* ) echo $((num*1024*1024*1024)) ;;
+    T* ) echo $((num*1024*1024*1024*1024)) ;;
+    P* ) echo $((num*1024*1024*1024*1024*1024)) ;;
+    *  ) echo "$num" ;;
+  esac
+}
+
+# Récupère la taille virtuelle actuelle de l'image (en octets)
+get_image_virtual_size_bytes() {
+  local path="$1"
+  # Essayer json via python3
+  if command -v python3 >/dev/null 2>&1; then
+    qemu-img info --output json "$path" 2>/dev/null | python3 - <<'PY'
+import sys, json
+data = json.load(sys.stdin)
+print(int(data.get('virtual-size', 0)))
+PY
+    return $?
+  fi
+  # Fallback: grep virtual size
+  qemu-img info "$path" 2>/dev/null | awk -F'[() ]+' '/virtual size/ {print $4}'
+}
 log_warn() { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
 log_ok()   { echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}  $*"; }
 log_err()  { echo -e "${COLOR_RED}[ERREUR]${COLOR_RESET} $*"; }
@@ -114,6 +172,7 @@ IP_ADDR=""
 GW_ADDR=""
 DNS_SERVERS="1.1.1.1 8.8.8.8"
 DNS_SEARCH=""
+ALLOW_SHRINK=false
 # Cloud-init user
 CI_USER="honeypot"
 CI_PASSWORD=""                  # si vide, non défini (clé SSH recommandée)
@@ -158,6 +217,7 @@ Cloud-init utilisateur:
 
 Divers:
   --no-qga                    Ne pas activer qemu-guest-agent
+  --allow-shrink              Autoriser la réduction de l'image (qemu-img --shrink)
   --start                     Démarrer la VM automatiquement à la fin
   --wait-cloudinit            Attendre la fin de cloud-init (avec QGA)
   -h | --help                 Afficher l'aide
@@ -186,6 +246,7 @@ while [[ $# -gt 0 ]]; do
     --ci-pass) CI_PASSWORD="$2"; shift 2 ;;
     --ssh-pubkey) SSH_PUBKEY_PATH="$2"; shift 2 ;;
     --no-qga) ENABLE_QGA=false; shift ;;
+    --allow-shrink) ALLOW_SHRINK=true; shift ;;
     --start) START_VM=true; shift ;;
     --wait-cloudinit) WAIT_CLOUDINIT=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -242,10 +303,28 @@ else
   log_info "Image Debian trouvée en cache: ${IMAGE_PATH}"
 fi
 
-# Redimensionner le disque si demandé
+# Redimensionner le disque si demandé (sécurisé)
 if [[ -n "${DISK_SIZE}" ]]; then
-  log_info "Redimensionnement de l'image à ${DISK_SIZE}"
-  run "Resize disque QCOW2" qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
+  cur_bytes=$(get_image_virtual_size_bytes "${IMAGE_PATH}" || echo "")
+  tgt_bytes=$(size_to_bytes <<<"${DISK_SIZE}" || echo "")
+  if [[ -z "$cur_bytes" || -z "$tgt_bytes" ]]; then
+    log_warn "Impossible de déterminer les tailles actuelles/cibles, tentative de resize direct à ${DISK_SIZE}"
+    run "Resize disque QCOW2 (best-effort)" qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
+  else
+    if (( tgt_bytes > cur_bytes )); then
+      log_info "Agrandissement de l'image: $(printf '%d' "$cur_bytes") -> ${DISK_SIZE}"
+      run "Resize (grow)" qemu-img resize "${IMAGE_PATH}" "${DISK_SIZE}"
+    elif (( tgt_bytes < cur_bytes )); then
+      if [[ "${ALLOW_SHRINK}" == true ]]; then
+        log_warn "Réduction de l'image demandée: cela peut supprimer des données au-delà de ${DISK_SIZE}"
+        run "Resize (shrink)" qemu-img resize --shrink "${IMAGE_PATH}" "${DISK_SIZE}"
+      else
+        log_warn "Taille cible (${DISK_SIZE}) < taille actuelle. Aucun shrink effectué (ajoutez --allow-shrink pour forcer)."
+      fi
+    else
+      log_info "Taille de l'image déjà à ${DISK_SIZE}, pas de modification."
+    fi
+  fi
 fi
 
 # Créer la VM basique
