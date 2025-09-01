@@ -109,6 +109,21 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/ma
   --wait-cloudinit
 ```
 
+Exemple DHCP avec image cache existante (spécifie `--disk 10G`):
+
+```bash
+bash <(curl -fsSL "https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/provision_honeypot_vm.sh?nocache=$(date +%s)") \
+  --name hp-dhcp \
+  --storage local-lvm \
+  --ci-storage local \
+  --bridge vmbr0 \
+  --disk 10G \
+  --dhcp \
+  --ssh-pubkey /root/.ssh/id_rsa.pub \
+  --start \
+  --wait-cloudinit
+```
+
 Paramètres principaux:
 
 - `--vmid <ID>`: ID VM unique (obligatoire).
