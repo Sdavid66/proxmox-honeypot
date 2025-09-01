@@ -25,6 +25,52 @@ run() {
   fi
 }
 
+# Helpers Proxmox
+get_next_vmid() {
+  # Essaie via pvesh
+  if command -v pvesh >/dev/null 2>&1; then
+    local id
+    if id=$(pvesh get /cluster/nextid 2>/dev/null); then
+      echo "${id}"
+      return 0
+    fi
+  fi
+  # Fallback: calcule depuis qm list
+  local maxid
+  maxid=$(qm list | awk 'NR>1 {print $1}' | sort -n | tail -n1)
+  if [[ -z "${maxid}" ]]; then
+    echo 100
+  else
+    echo $((maxid+1))
+  fi
+}
+
+get_vm_ipv4() {
+  # Requiert QGA
+  local json
+  if ! json=$(qm agent "${VMID}" network-get-interfaces 2>/dev/null); then
+    return 1
+  fi
+  # Tente via python3 si dispo
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$json" <<'PY'
+import sys, json
+data = json.loads(sys.argv[1]) if len(sys.argv)>1 else json.load(sys.stdin)
+for iface in data:
+    if iface.get('name') == 'lo':
+        continue
+    for addr in iface.get('ip-addresses', []):
+        if addr.get('ip-address-type') == 'ipv4' and addr.get('ip-address') != '127.0.0.1':
+            print(addr['ip-address'])
+            sys.exit(0)
+sys.exit(1)
+PY
+    return $?
+  fi
+  # Fallback pauvre: grep la première IPv4 non loopback
+  echo "${json}" | grep -E '"ip-address"' | grep -Eo '[0-9]+(\.[0-9]+){3}' | grep -v '^127\.' | head -n1
+}
+
 # ------------------------------------------------------------
 # Provision d'une VM Proxmox (PVE) prête pour un honeypot (Cowrie)
 # - S'exécute SUR le noeud Proxmox (root@pve)
@@ -82,10 +128,10 @@ WAIT_CLOUDINIT=false             # attendre la fin cloud-init (nécessite QGA)
 
 usage() {
   cat <<EOF
-Usage: $0 --vmid <ID> [options]
+Usage: $0 [--vmid <ID>] [options]
 
-Obligatoire:
-  --vmid <ID>                 ID unique de la VM (ex: 9001)
+VMID:
+  --vmid <ID>                 ID unique de la VM (ex: 9001). Si omis: auto (premier libre)
 
 Options principales:
   --name <nom>                Nom de la VM (defaut: ${NAME})
@@ -147,11 +193,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validation
+# VMID auto si non fourni
 if [[ -z "${VMID}" ]]; then
-  echo "[ERREUR] --vmid est obligatoire" >&2
-  usage
-  exit 1
+  log_info "Aucun VMID fourni: sélection automatique du premier ID libre"
+  VMID=$(get_next_vmid)
+  log_ok "VMID sélectionné: ${VMID}"
 fi
 
 if [[ "${USE_DHCP}" == false && -z "${IP_ADDR}" ]]; then
@@ -334,6 +380,12 @@ if [[ "${START_VM}" == true ]]; then
     if [[ "${QGA_UP}" == true ]]; then
       log_ok "QGA disponible. Vous pouvez suivre cloud-init dans la VM."
       log_info "Conseil: journalctl -u cloud-init -n 200 --no-pager (dans la VM)"
+      # Détection IP automatique (DHCP) via QGA
+      if ip=$(get_vm_ipv4 2>/dev/null) && [[ -n "$ip" ]]; then
+        log_ok "Adresse IP détectée: ${ip}"
+      else
+        log_warn "Impossible de détecter l'IP via QGA pour l'instant."
+      fi
     else
       log_warn "QGA non disponible après délai. Cloud-init continue probablement en tâche de fond."
     fi
@@ -352,7 +404,7 @@ Prochaines étapes:
   - Cowrie service:       systemctl status cowrie (dans la VM)
 
 Réseau:
-  - Mode: $( [[ "${USE_DHCP}" == true ]] && echo "DHCP" || echo "Statique ${IP_ADDR} (GW ${GW_ADDR})" )
+  - Mode: $( [[ "${USE_DHCP}" == true ]] && echo "DHCP (auto)" || echo "Statique ${IP_ADDR} (GW ${GW_ADDR})" )
 
 Sécurité:
   - Ce honeypot écoute sur SSH et journalise les interactions.

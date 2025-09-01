@@ -25,6 +25,11 @@ chmod +x provision_honeypot_vm.sh
 
 ## Utilisation
 
+Par défaut:
+
+- VMID est auto-sélectionné (premier ID libre dans Proxmox). Vous pouvez toujours forcer via `--vmid <ID>`.
+- Si aucune IP n'est fournie, la VM utilisera DHCP. Si QGA est activé, le script tentera d'afficher l'IP détectée après démarrage.
+
 Exemple complet (IP statique) avec démarrage auto et attente cloud-init:
 
 ```bash
@@ -46,11 +51,10 @@ Exemple complet (IP statique) avec démarrage auto et attente cloud-init:
   --wait-cloudinit
 ```
 
-Exemple en DHCP:
+Exemple en DHCP (VMID auto, IP via DHCP auto):
 
 ```bash
 ./provision_honeypot_vm.sh \
-  --vmid 9002 \
   --name hp-dhcp \
   --storage local-lvm \
   --bridge vmbr1 \
@@ -83,11 +87,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/ma
   --wait-cloudinit
 ```
 
-Exemple DHCP:
+Exemple DHCP (VMID auto):
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/provision_honeypot_vm.sh) \
-  --vmid 9002 \
   --name hp-dhcp \
   --storage local-lvm \
   --bridge vmbr1 \
