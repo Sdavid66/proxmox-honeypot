@@ -10,6 +10,7 @@ Ce projet fournit un script Bash pour créer automatiquement une VM Debian 12 su
 - Un stockage supportant les snippets (contenu « Snippets » activé), souvent `local`.
   - Dans l'UI: Datacenter → Storage → (votre storage) → Content → cocher « Snippets ».
 - Accès Internet depuis le nœud PVE pour télécharger l'image cloud Debian et le repo de Cowrie.
+- Note: le script activera automatiquement le contenu « snippets » sur le stockage `local` si nécessaire.
 
 ## Fichiers
 
@@ -46,7 +47,6 @@ Exemple complet (IP statique) avec démarrage auto et attente cloud-init:
   --vmid 9001 \
   --name hp-debian12 \
   --storage local-lvm \
-  --ci-storage local \
   --bridge vmbr1 \
   --vlan 30 \
   --disk 10G \
@@ -82,7 +82,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/ma
   --vmid 9001 \
   --name hp-debian12 \
   --storage local-lvm \
-  --ci-storage local \
   --bridge vmbr1 \
   --vlan 30 \
   --disk 10G \
@@ -129,7 +128,7 @@ Paramètres principaux:
 - `--vmid <ID>`: ID VM unique (obligatoire).
 - `--name <nom>`: nom de la VM (défaut: `honeypot-debian12`).
 - `--storage <storage>`: stockage disque (défaut: `local-lvm`).
-- `--ci-storage <storage>`: stockage avec « Snippets » activé (défaut: `local`).
+- `--ci-storage <storage>`: (ignoré) le script FORCE l'usage du stockage `local` pour les snippets et activera « snippets » sur `local` si besoin.
 - `--bridge <vmbrX>`: bridge réseau (défaut: `vmbr0`).
 - `--vlan <tag>`: Tag VLAN (optionnel).
 - `--disk <taille>`: taille disque (défaut: `8G`).
