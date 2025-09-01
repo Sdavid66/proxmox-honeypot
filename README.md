@@ -111,7 +111,36 @@ Paramètres principaux:
 - `--disk <taille>`: taille disque (défaut: `8G`).
 - `--memory <MB>`: RAM (défaut: `1024`).
 - `--cores <N>`: vCPU (défaut: `1`).
-- `--cpu-type <type>`: type CPU (défaut: `x86-64-v2-AES`).
+- `--cpu-type <type>`: Type CPU (défaut: `x86-64-v2-AES`).
+
+## Dépannage
+
+### Erreur: qemu-img demande `--shrink`
+
+Symptômes:
+
+```
+qemu-img: Use the --shrink option to perform a shrink operation.
+qemu-img: warning: Shrinking an image will delete all data beyond the shrunken image's end.
+```
+
+Causes possibles:
+
+- L'image cache `qcow2` existe déjà sur le nœud (ex: `/tmp/pve-honeypot-build/debian-12.qcow2`) avec une taille virtuelle supérieure à la cible (ex: cache à 10G, cible à 8G).
+
+Solutions (choisir l'une des deux):
+
+- Option B (recommandée sur ancienne image cache): spécifier une taille disque supérieure ou égale à la taille actuelle de l'image cache, par ex. `--disk 10G`.
+- Ou supprimer l'image cache puis relancer à 8G:
+
+```bash
+rm -f /tmp/pve-honeypot-build/debian-12.qcow2
+```
+
+Note:
+
+- Le script supporte un mode « grow-only » par défaut. Si une réduction est explicitement souhaitée, utilisez `--allow-shrink` (opération destructive, à éviter en production).
+
 - Réseau: `--dhcp` ou `--ip <CIDR>` + `--gw <IP>`.
 - DNS: `--dns "IP [IP...]"` et `--dns-search <domain>`.
 - Cloud-init user: `--ci-user`, `--ci-pass`, `--ssh-pubkey <path>`.
