@@ -58,6 +58,45 @@ Exemple en DHCP:
   --ssh-pubkey /root/.ssh/id_rsa.pub
 ```
 
+## Exécution directe depuis GitHub
+
+Depuis un shell sur le nœud Proxmox (root), vous pouvez exécuter le script directement depuis le dépôt GitHub.
+
+Exemple IP statique:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/provision_honeypot_vm.sh) \
+  --vmid 9001 \
+  --name hp-debian12 \
+  --storage local-lvm \
+  --ci-storage local \
+  --bridge vmbr1 \
+  --vlan 30 \
+  --disk 10G \
+  --memory 2048 \
+  --cores 2 \
+  --ip 192.168.30.50/24 \
+  --gw 192.168.30.1 \
+  --dns "1.1.1.1 8.8.8.8" \
+  --ssh-pubkey /root/.ssh/id_rsa.pub \
+  --start \
+  --wait-cloudinit
+```
+
+Exemple DHCP:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/provision_honeypot_vm.sh) \
+  --vmid 9002 \
+  --name hp-dhcp \
+  --storage local-lvm \
+  --bridge vmbr1 \
+  --dhcp \
+  --ssh-pubkey /root/.ssh/id_rsa.pub \
+  --start \
+  --wait-cloudinit
+```
+
 Paramètres principaux:
 
 - `--vmid <ID>`: ID VM unique (obligatoire).
