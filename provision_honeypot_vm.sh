@@ -140,22 +140,22 @@ PY
 }
 
 # ------------------------------------------------------------
-# Provision d'une VM Proxmox (PVE) prête pour un honeypot (Cowrie)
+# Provision d'une VM Proxmox (PVE) prête pour un honeypot (T-Pot Standard)
 # - S'exécute SUR le noeud Proxmox (root@pve)
-# - Utilise une image cloud Debian 12 et cloud-init
-# - Crée un snippet user-data pour installer Cowrie au premier boot
+# - Utilise une image cloud Ubuntu 22.04 et cloud-init
+# - Crée un snippet user-data pour installer T-Pot Standard au premier boot
 # ------------------------------------------------------------
 # Dépendances côté PVE: qm, pvesm, curl, qemu-img
 # ------------------------------------------------------------
 # Exemple d'usage:
 #   bash provision_honeypot_vm.sh \
 #     --vmid 9001 \
-#     --name hp-debian12 \
+#     --name tpot-ubuntu22 \
 #     --storage local-lvm \
 #     --bridge vmbr1 \
 #     --vlan 30 \
-#     --disk 10G \
-#     --memory 2048 \
+#     --disk 64G \
+#     --memory 8192 \
 #     --cores 2 \
 #     --ip 192.168.30.50/24 \
 #     --gw 192.168.30.1 \
@@ -167,13 +167,13 @@ PY
 
 # Valeurs par défaut
 VMID=""
-NAME="honeypot-debian12"
+NAME="tpot-ubuntu22"
 STORAGE="local-lvm"            # stockage pour le disque VM (contenu: images)
 CI_STORAGE="local"             # stockage supportant les snippets (souvent 'local')
 BRIDGE="vmbr0"
 VLAN_TAG=""
-DISK_SIZE="8G"
-MEMORY_MB="1024"
+DISK_SIZE="64G"
+MEMORY_MB="8192"
 CORES="1"
 CPU_TYPE="x86-64-v2-AES"
 # Réseau: choisir DHCP ou IP statique via --dhcp ou --ip/--gw
@@ -188,7 +188,7 @@ CI_USER="honeypot"
 CI_PASSWORD=""                  # si vide, non défini (clé SSH recommandée)
 SSH_PUBKEY_PATH=""
 # Image cloud
-DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 WORKDIR="/tmp/pve-honeypot-build"
 SNIPPET_NAME_PREFIX="honeypot"
 ENABLE_QGA=true                  # qemu-guest-agent
@@ -338,7 +338,7 @@ log_ok "Snippets disponibles sur '${CI_STORAGE}'"
 
 # Préparation
 mkdir -p "${WORKDIR}"
-IMAGE_PATH="${WORKDIR}/debian-12.qcow2"
+IMAGE_PATH="${WORKDIR}/ubuntu-22.04.img"
 SNIPPET_DIR="/var/lib/vz/snippets"
 USER_SNIPPET_PATH="${SNIPPET_DIR}/${SNIPPET_NAME_PREFIX}-${VMID}-user.yaml"
 
@@ -347,10 +347,10 @@ run "Création du dossier de travail" mkdir -p "${WORKDIR}"
 
 # Téléchargement image si besoin
 if [[ ! -f "${IMAGE_PATH}" ]]; then
-  log_info "Téléchargement de l'image Debian 12 cloud"
-  run "Téléchargement image Debian 12" curl -fL "${DEBIAN_IMAGE_URL}" -o "${IMAGE_PATH}"
+  log_info "Téléchargement de l'image Ubuntu 22.04 cloud"
+  run "Téléchargement image Ubuntu 22.04" curl -fL "${UBUNTU_IMAGE_URL}" -o "${IMAGE_PATH}"
 else
-  log_info "Image Debian trouvée en cache: ${IMAGE_PATH}"
+  log_info "Image Ubuntu trouvée en cache: ${IMAGE_PATH}"
 fi
 
 # Redimensionner le disque si demandé (sécurisé)
@@ -442,47 +442,26 @@ users:
 package_update: true
 packages:
   - qemu-guest-agent
+  - curl
+  - ca-certificates
   - git
-  - python3
-  - python3-venv
-  - python3-pip
-  - virtualenv
-  - libssl-dev
-  - libffi-dev
-  - build-essential
-  - authbind
-  - ufw
+  - jq
 
 runcmd:
   - [ bash, -lc, "systemctl enable --now qemu-guest-agent || true" ]
-  - [ bash, -lc, "set -euo pipefail; id ${CI_USER} || true" ]
-  - [ bash, -lc, "ufw default deny incoming && ufw default allow outgoing && ufw allow 22 && ufw --force enable" ]
-  - [ bash, -lc, "adduser --disabled-password --gecos '' cowrie || true" ]
-  - [ bash, -lc, "mkdir -p /opt/cowrie && chown cowrie:cowrie /opt/cowrie" ]
-  - [ bash, -lc, "sudo -u cowrie python3 -m venv /opt/cowrie/venv" ]
-  - [ bash, -lc, "sudo -u cowrie /opt/cowrie/venv/bin/pip install --upgrade pip wheel" ]
-  - [ bash, -lc, "sudo -u cowrie git clone https://github.com/cowrie/cowrie.git /opt/cowrie/cowrie || true" ]
-  - [ bash, -lc, "sudo -u cowrie /opt/cowrie/venv/bin/pip install -r /opt/cowrie/cowrie/requirements.txt" ]
-  - [ bash, -lc, "sudo -u cowrie cp /opt/cowrie/cowrie/etc/cowrie.cfg.dist /opt/cowrie/cowrie/etc/cowrie.cfg || true" ]
-  - [ bash, -lc, "echo 'shell.hostname = ${NAME}' >> /opt/cowrie/cowrie/etc/cowrie.cfg" ]
-  - [ bash, -lc, "echo 'ssh_listen_port = 22' >> /opt/cowrie/cowrie/etc/cowrie.cfg" ]
-  - [ bash, -lc, "echo 'telnet_enabled = false' >> /opt/cowrie/cowrie/etc/cowrie.cfg" ]
-  - [ bash, -lc, "echo 'stdout = false' >> /opt/cowrie/cowrie/etc/cowrie.cfg" ]
-  - [ bash, -lc, "if [ -f /etc/ssh/sshd_config ]; then sed -i 's/^#\?Port .*/Port 2222/' /etc/ssh/sshd_config && systemctl restart ssh || true; fi" ]
-  - [ bash, -lc, "cat >/etc/systemd/system/cowrie.service <<'UNIT'\n[Unit]\nDescription=Cowrie SSH Honeypot\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nUser=cowrie\nGroup=cowrie\nWorkingDirectory=/opt/cowrie/cowrie\nExecStart=/opt/cowrie/venv/bin/python /opt/cowrie/cowrie/bin/cowrie start -n\nExecStop=/opt/cowrie/venv/bin/python /opt/cowrie/cowrie/bin/cowrie stop\nRestart=always\nRestartSec=5s\n\n[Install]\nWantedBy=multi-user.target\nUNIT" ]
-  - [ bash, -lc, "systemctl daemon-reload && systemctl enable --now cowrie" ]
-  - [ bash, -lc, "ufw default deny outgoing" ]
-  - [ bash, -lc, "ufw allow in on lo" ]
-  - [ bash, -lc, "ufw allow out on lo" ]
-  - [ bash, -lc, "ufw status verbose" ]
+  - [ bash, -lc, "set -euo pipefail" ]
+  - [ bash, -lc, "curl -fsSL https://install.tpotce.org -o /root/tpot-install.sh" ]
+  - [ bash, -lc, "chmod +x /root/tpot-install.sh" ]
+  - [ bash, -lc, "bash /root/tpot-install.sh || true" ]
+  - [ bash, -lc, "echo 'NOTE: l\'installateur T-Pot peut demander une confirmation. Si l\'installation non-interactive échoue, connectez-vous via la console et relancez: bash /root/tpot-install.sh'" ]
 
 write_files:
   - path: /etc/motd
     permissions: '0644'
     content: |
-      Attention: système sous supervision.
+      Attention: système sous supervision (T-Pot Standard en cours d'installation).
 
-final_message: "Cloud-init terminé pour ${NAME}. Cowrie démarré."
+final_message: "Cloud-init terminé pour ${NAME}. L'installation T-Pot peut continuer/redémarrer selon l'installateur."
 EOF
 
 # Appliquer config réseau/ssh/dns à la VM via qm set
@@ -542,7 +521,7 @@ Prochaines étapes:
   - Démarrer la VM:       qm start ${VMID}
   - Voir la console:      qm terminal ${VMID}
   - Vérifier cloud-init:  journalctl -u cloud-init -n 200 --no-pager (dans la VM)
-  - Cowrie service:       systemctl status cowrie (dans la VM)
+  - T-Pot service:        systemctl status tpot (dans la VM)
 
 Réseau:
   - Mode: $( [[ "${USE_DHCP}" == true ]] && echo "DHCP (auto)" || echo "Statique ${IP_ADDR} (GW ${GW_ADDR})" )
