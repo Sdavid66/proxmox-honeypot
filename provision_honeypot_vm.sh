@@ -440,7 +440,7 @@ run "qm create ${VMID}" qm create "${VMID}" \
   --ostype l26 \
   --scsihw virtio-scsi-pci \
   --serial0 socket \
-  --vga serial0
+  --vga std
 
 # Import du disque
 log_info "Import du disque dans ${STORAGE}"
@@ -558,6 +558,23 @@ if [[ "${START_VM}" == true ]]; then
       fi
     else
       log_warn "QGA non disponible après délai. Cloud-init continue probablement en tâche de fond."
+    fi
+
+    # Fallback: tentative de détection IP via ARP/MAC sur le bridge (utile si QGA KO)
+    if [[ "${USE_DHCP}" == true ]]; then
+      mac=$(qm config "${VMID}" | awk -F'[=, ]' '/^net0:/ {print $3}')
+      if [[ -n "${mac}" ]]; then
+        mac_lc=$(echo "${mac}" | tr '[:upper:]' '[:lower:]')
+        candidates=$(ip neigh show dev "${BRIDGE}" 2>/dev/null | awk -v m="${mac_lc}" 'BEGIN{IGNORECASE=1} index($0,m){print $1}')
+        if [[ -n "${candidates}" ]]; then
+          log_info "IP candidate(s) détectée(s) via ARP/MAC (${mac_lc}) sur ${BRIDGE}:"
+          echo "${candidates}" | sed 's/^/  - /'
+        else
+          log_warn "Aucune IP trouvée via ARP pour MAC ${mac_lc} sur ${BRIDGE}."
+        fi
+      else
+        log_warn "Impossible de récupérer la MAC de net0 via 'qm config ${VMID}'."
+      fi
     fi
   fi
 fi
