@@ -173,6 +173,7 @@ NAME="tpot-ubuntu22"
 STORAGE="local-lvm"            # stockage pour le disque VM (contenu: images)
 CI_STORAGE="local"             # stockage supportant les snippets (souvent 'local')
 BRIDGE="vmbr0"
+BRIDGE_USER_SET=false
 VLAN_TAG=""
 DISK_SIZE="64G"
 MEMORY_MB="8192"
@@ -249,7 +250,7 @@ while [[ $# -gt 0 ]]; do
     --name) NAME="$2"; shift 2 ;;
     --storage) STORAGE="$2"; shift 2 ;;
     --ci-storage) CI_STORAGE="$2"; shift 2 ;;
-    --bridge) BRIDGE="$2"; shift 2 ;;
+    --bridge) BRIDGE="$2"; BRIDGE_USER_SET=true; shift 2 ;;
     --vlan) VLAN_TAG="$2"; shift 2 ;;
     --disk) DISK_SIZE="$2"; shift 2 ;;
     --memory) MEMORY_MB="$2"; shift 2 ;;
@@ -305,13 +306,24 @@ command -v pvesh >/dev/null 2>&1 || { log_err "pvesh introuvable. Exécuter sur 
 command -v qm >/dev/null 2>&1 || { log_err "qm introuvable. Exécuter sur un nœud Proxmox."; exit 1; }
 command -v pvesm >/dev/null 2>&1 || { log_err "pvesm introuvable. Exécuter sur un nœud Proxmox."; exit 1; }
 
-# Validation bridge réseau
+# Validation et auto-détection du bridge réseau
+AVAILABLE_BRIDGES=$(ls /sys/class/net 2>/dev/null | grep -E '^vmbr[0-9]+' | sort || true)
 if ! ip link show "${BRIDGE}" >/dev/null 2>&1; then
-  log_err "Le bridge '${BRIDGE}' n'existe pas sur ce nœud Proxmox."
+  if [[ -n "${AVAILABLE_BRIDGES}" ]]; then
+    FALLBACK_BRIDGE=$(echo "${AVAILABLE_BRIDGES}" | head -n1)
+    if [[ "${BRIDGE_USER_SET}" == true ]]; then
+      log_warn "Le bridge '${BRIDGE}' n'existe pas. Bascule automatique sur '${FALLBACK_BRIDGE}'. Utilisez --bridge pour choisir un autre bridge."
+    else
+      log_info "Bridge '${BRIDGE}' introuvable. Auto-détection: utilisation de '${FALLBACK_BRIDGE}'."
+    fi
+    BRIDGE="${FALLBACK_BRIDGE}"
+  fi
+fi
+if ! ip link show "${BRIDGE}" >/dev/null 2>&1; then
+  log_err "Aucun bridge réseau valide détecté sur ce nœud Proxmox."
   echo "\nSuggestions:" >&2
-  echo "- Utilisez un bridge existant (ex: --bridge vmbr0)" >&2
-  echo "- Ou créez le bridge '${BRIDGE}' via l'UI (Datacenter > Node > System > Network)" >&2
-  echo "  et appliquez la configuration réseau (ifreload -a) avant de relancer." >&2
+  echo "- Créez un bridge (ex: vmbr0) via l'UI: Datacenter > Node > System > Network" >&2
+  echo "  puis appliquez la configuration réseau (ifreload -a) avant de relancer." >&2
   exit 1
 fi
 
