@@ -502,8 +502,8 @@ runcmd:
   - [ bash, -lc, "echo '${CI_USER} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-${CI_USER}-nopasswd && chmod 440 /etc/sudoers.d/90-${CI_USER}-nopasswd" ]
   - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'git clone https://github.com/telekom-security/tpotce ~/tpotce || (cd ~/tpotce && git pull --rebase)'" ]
   - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'chmod +x ~/tpotce/install.sh'" ]
-  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'TPOT_PROFILE=${TPOT_PROFILE} ~/tpotce/install.sh || true'" ]
-  - [ bash, -lc, "echo 'NOTE: l\'installateur T-Pot CE (~/tpotce/install.sh) peut être interactif et peut redémarrer la machine. Si nécessaire, connectez-vous en tant que ${CI_USER} et relancez: ~/tpotce/install.sh'" ]
+  - [ bash, -lc, "systemctl daemon-reload || true" ]
+  - [ bash, -lc, "systemctl enable --now tpot-bootstrap.service || true" ]
 
 write_files:
   - path: /etc/motd
@@ -511,7 +511,43 @@ write_files:
     content: |
       Attention: système sous supervision (T-Pot CE en cours d'installation).
 
-final_message: "Cloud-init terminé pour ${NAME}. L'installation T-Pot CE peut continuer/redémarrer selon l'installateur."
+  - path: /usr/local/sbin/tpot-bootstrap.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      LOG="/home/${CI_USER}/tpot-install.log"
+      echo "[tpot-bootstrap] start $(date)" >>"${LOG}"
+      cd "/home/${CI_USER}"
+      if [ ! -d "tpotce" ]; then
+        git clone https://github.com/telekom-security/tpotce tpotce >>"${LOG}" 2>&1 || true
+      fi
+      (cd tpotce && git pull --rebase >>"${LOG}" 2>&1) || true
+      echo "[tpot-bootstrap] running installer (profile=${TPOT_PROFILE})" >>"${LOG}"
+      export TPOT_PROFILE="${TPOT_PROFILE}"
+      bash -lc "TPOT_PROFILE=${TPOT_PROFILE} ~/tpotce/install.sh" >>"${LOG}" 2>&1
+      echo "[tpot-bootstrap] done $(date)" >>"${LOG}"
+
+  - path: /etc/systemd/system/tpot-bootstrap.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=T-Pot CE Bootstrap Installer
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=simple
+      User=${CI_USER}
+      WorkingDirectory=/home/${CI_USER}
+      ExecStart=/usr/local/sbin/tpot-bootstrap.sh
+      Restart=on-failure
+      RestartSec=30s
+
+      [Install]
+      WantedBy=multi-user.target
+
+final_message: "Cloud-init terminé pour ${NAME}. L'installation T-Pot CE est gérée par le service 'tpot-bootstrap.service'. Consultez /home/${CI_USER}/tpot-install.log pour le suivi."
 EOF
 
 # Appliquer config réseau/ssh/dns à la VM via qm set
