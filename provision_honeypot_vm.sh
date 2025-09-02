@@ -446,22 +446,25 @@ packages:
   - ca-certificates
   - git
   - jq
+  - sudo
 
 runcmd:
   - [ bash, -lc, "systemctl enable --now qemu-guest-agent || true" ]
   - [ bash, -lc, "set -euo pipefail" ]
-  - [ bash, -lc, "curl -fsSL https://install.tpotce.org -o /root/tpot-install.sh" ]
-  - [ bash, -lc, "chmod +x /root/tpot-install.sh" ]
-  - [ bash, -lc, "bash /root/tpot-install.sh || true" ]
-  - [ bash, -lc, "echo 'NOTE: l\'installateur T-Pot peut demander une confirmation. Si l\'installation non-interactive échoue, connectez-vous via la console et relancez: bash /root/tpot-install.sh'" ]
+  - [ bash, -lc, "usermod -aG sudo ${CI_USER} || true" ]
+  - [ bash, -lc, "echo '${CI_USER} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-${CI_USER}-nopasswd && chmod 440 /etc/sudoers.d/90-${CI_USER}-nopasswd" ]
+  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'git clone https://github.com/telekom-security/tpotce ~/tpotce || (cd ~/tpotce && git pull --rebase)'" ]
+  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'chmod +x ~/tpotce/install.sh'" ]
+  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc '~/tpotce/install.sh || true'" ]
+  - [ bash, -lc, "echo 'NOTE: l\'installateur T-Pot CE (~/tpotce/install.sh) peut être interactif et peut redémarrer la machine. Si nécessaire, connectez-vous en tant que ${CI_USER} et relancez: ~/tpotce/install.sh'" ]
 
 write_files:
   - path: /etc/motd
     permissions: '0644'
     content: |
-      Attention: système sous supervision (T-Pot Standard en cours d'installation).
+      Attention: système sous supervision (T-Pot CE en cours d'installation).
 
-final_message: "Cloud-init terminé pour ${NAME}. L'installation T-Pot peut continuer/redémarrer selon l'installateur."
+final_message: "Cloud-init terminé pour ${NAME}. L'installation T-Pot CE peut continuer/redémarrer selon l'installateur."
 EOF
 
 # Appliquer config réseau/ssh/dns à la VM via qm set
