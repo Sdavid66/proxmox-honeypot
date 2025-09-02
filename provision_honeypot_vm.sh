@@ -140,10 +140,11 @@ PY
 }
 
 # ------------------------------------------------------------
-# Provision d'une VM Proxmox (PVE) prête pour un honeypot (T-Pot Standard)
+# Provision d'une VM Proxmox (PVE) prête pour un honeypot (T-Pot CE)
 # - S'exécute SUR le noeud Proxmox (root@pve)
 # - Utilise une image cloud Ubuntu 22.04 et cloud-init
-# - Crée un snippet user-data pour installer T-Pot Standard au premier boot
+# - Crée un snippet user-data pour installer T-Pot CE au premier boot
+# - Supporte un profil: --profile hive | sensor (par défaut: hive)
 # ------------------------------------------------------------
 # Dépendances côté PVE: qm, pvesm, curl, qemu-img
 # ------------------------------------------------------------
@@ -159,7 +160,8 @@ PY
 #     --cores 2 \
 #     --ip 192.168.30.50/24 \
 #     --gw 192.168.30.1 \
-#     --ssh-pubkey "/root/.ssh/id_rsa.pub"
+#     --ssh-pubkey "/root/.ssh/id_rsa.pub" \
+#     --profile hive
 #
 # DHCP (au lieu d'une IP statique):
 #   --dhcp
@@ -187,6 +189,10 @@ ALLOW_SHRINK=false
 CI_USER="honeypot"
 CI_PASSWORD=""                  # si vide, non défini (clé SSH recommandée)
 SSH_PUBKEY_PATH=""
+# T-Pot profil (hive | sensor)
+TPOT_PROFILE="hive"
+# Forcer malgré ressources insuffisantes
+FORCE=false
 # Image cloud
 UBUNTU_IMAGE_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 WORKDIR="/tmp/pve-honeypot-build"
@@ -230,6 +236,8 @@ Divers:
   --allow-shrink              Autoriser la réduction de l'image (qemu-img --shrink)
   --start                     Démarrer la VM automatiquement à la fin
   --wait-cloudinit            Attendre la fin de cloud-init (avec QGA)
+  --profile <hive|sensor>     Profil T-Pot à installer (defaut: ${TPOT_PROFILE})
+  --force                     Ignorer les vérifications de ressources minimales
   -h | --help                 Afficher l'aide
 EOF
 }
@@ -255,6 +263,8 @@ while [[ $# -gt 0 ]]; do
     --ci-user) CI_USER="$2"; shift 2 ;;
     --ci-pass) CI_PASSWORD="$2"; shift 2 ;;
     --ssh-pubkey) SSH_PUBKEY_PATH="$2"; shift 2 ;;
+    --profile) TPOT_PROFILE="$2"; shift 2 ;;
+    --force) FORCE=true; shift ;;
     --no-qga) ENABLE_QGA=false; shift ;;
     --allow-shrink) ALLOW_SHRINK=true; shift ;;
     --start) START_VM=true; shift ;;
@@ -351,6 +361,31 @@ if [[ ! -f "${IMAGE_PATH}" ]]; then
   run "Téléchargement image Ubuntu 22.04" curl -fL "${UBUNTU_IMAGE_URL}" -o "${IMAGE_PATH}"
 else
   log_info "Image Ubuntu trouvée en cache: ${IMAGE_PATH}"
+fi
+
+# Vérifications de ressources minimales selon le profil
+bytes_disk_target=$(size_to_bytes "${DISK_SIZE}" || echo "")
+if [[ -z "${bytes_disk_target}" ]]; then
+  log_warn "Impossible de calculer la taille disque cible; les vérifications de ressources seront ignorées."
+else
+  # Seuils depuis la documentation T-Pot CE
+  if [[ "${TPOT_PROFILE}" == "hive" ]]; then
+    MIN_RAM_MB=16384
+    MIN_DISK_BYTES=$((256*1024*1024*1024))
+  else
+    MIN_RAM_MB=8192
+    MIN_DISK_BYTES=$((128*1024*1024*1024))
+  fi
+  if [[ "${FORCE}" != true ]]; then
+    if (( MEMORY_MB < MIN_RAM_MB )); then
+      log_err "RAM insuffisante pour le profil '${TPOT_PROFILE}'. Requis: ${MIN_RAM_MB} MB, fourni: ${MEMORY_MB} MB (utilisez --force pour ignorer)."; exit 1
+    fi
+    if (( bytes_disk_target < MIN_DISK_BYTES )); then
+      log_err "Disque insuffisant pour le profil '${TPOT_PROFILE}'. Requis: $(printf '%.0f' $(echo "${MIN_DISK_BYTES}/1024/1024/1024" | bc -l))G, fourni: ${DISK_SIZE} (utilisez --force pour ignorer)."; exit 1
+    fi
+  else
+    log_warn "Mode --force: vérifications de ressources minimales ignorées (profil ${TPOT_PROFILE})."
+  fi
 fi
 
 # Redimensionner le disque si demandé (sécurisé)
@@ -455,7 +490,7 @@ runcmd:
   - [ bash, -lc, "echo '${CI_USER} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-${CI_USER}-nopasswd && chmod 440 /etc/sudoers.d/90-${CI_USER}-nopasswd" ]
   - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'git clone https://github.com/telekom-security/tpotce ~/tpotce || (cd ~/tpotce && git pull --rebase)'" ]
   - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'chmod +x ~/tpotce/install.sh'" ]
-  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc '~/tpotce/install.sh || true'" ]
+  - [ bash, -lc, "sudo -u ${CI_USER} bash -lc 'TPOT_PROFILE=${TPOT_PROFILE} ~/tpotce/install.sh || true'" ]
   - [ bash, -lc, "echo 'NOTE: l\'installateur T-Pot CE (~/tpotce/install.sh) peut être interactif et peut redémarrer la machine. Si nécessaire, connectez-vous en tant que ${CI_USER} et relancez: ~/tpotce/install.sh'" ]
 
 write_files:
