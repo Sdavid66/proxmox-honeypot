@@ -30,6 +30,7 @@ Par défaut:
 
 - VMID est auto-sélectionné (premier ID libre dans Proxmox). Vous pouvez toujours forcer via `--vmid <ID>`.
 - Si aucune IP n'est fournie, la VM utilisera DHCP. Si QGA est activé, le script tentera d'afficher l'IP détectée après démarrage.
+ - Bridge réseau: si `--bridge` est omis ou invalide, le script sélectionne automatiquement le premier bridge disponible (`vmbr*`, ex: `vmbr0`).
 
 Note importante (taille disque et image cache):
 
@@ -47,7 +48,7 @@ Exemple profil Hive (IP statique) avec démarrage auto et attente cloud-init:
   --vmid 9001 \
   --name tpot-ubuntu22 \
   --storage local-lvm \
-  --bridge vmbr1 \
+  --bridge vmbr0 \
   --vlan 30 \
   --disk 256G \
   --memory 16384 \
@@ -67,7 +68,7 @@ Exemple profil Sensor en DHCP (VMID auto):
 ./provision_honeypot_vm.sh \
   --name tpot-sensor \
   --storage local-lvm \
-  --bridge vmbr1 \
+  --bridge vmbr0 \
   --disk 128G \
   --memory 8192 \
   --dhcp \
@@ -88,7 +89,7 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/m
   --vmid 9001 \
   --name tpot-ubuntu22 \
   --storage local-lvm \
-  --bridge vmbr1 \
+  --bridge vmbr0 \
   --vlan 30 \
   --disk 256G \
   --memory 16384 \
@@ -108,7 +109,7 @@ Exemple DHCP (profil Sensor, VMID auto):
 bash <(curl -fsSL "https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/provision_honeypot_vm.sh?nocache=$(date +%s)") \
   --name tpot-sensor \
   --storage local-lvm \
-  --bridge vmbr1 \
+  --bridge vmbr0 \
   --disk 128G \
   --memory 8192 \
   --dhcp \
@@ -215,7 +216,7 @@ Dans la VM:
 
 ## Sécurité et réseau
 
-- Placez cette VM sur un segment interne contrôlé (ex: `vmbr1`, VLAN dédié).
+ - Placez cette VM sur un segment interne contrôlé (ex: `vmbr0`, VLAN dédié).
 - Référez-vous aux ports requis par T-Pot CE dans sa documentation officielle.
 
 ## Suppression de la VM
