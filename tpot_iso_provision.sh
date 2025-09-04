@@ -111,7 +111,7 @@ ISO_STORAGE="local"           # stockage content: iso
 BRIDGE="vmbr0"
 VLAN_TAG=""
 DISK_SIZE="256G"
-MEMORY_MB="16384"
+MEMORY_MB="8000"
 CORES="4"
 CPU_TYPE="x86-64-v2-AES"
 ENABLE_QGA=false
@@ -129,7 +129,7 @@ DNS_SEARCH=""
 CI_USER="honeypot"
 CI_PASSWORD=""
 SSH_PUBKEY_PATH=""
-TPOT_PROFILE="hive"           # hive | sensor
+TPOT_PROFILE="sensor"         # hive | sensor
 WAIT_CLOUDINIT=false
 WORKDIR="/tmp/pve-honeypot-build"
 DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-genericcloud-amd64-daily.qcow2"
@@ -232,9 +232,14 @@ done
 if [[ $(id -u) -ne 0 ]]; then
   log_err "Exécuter ce script en root sur un nœud Proxmox."; exit 1
 fi
-for cmd in qm pvesm curl jq qemu-img; do
+for cmd in qm pvesm curl qemu-img; do
   command -v "$cmd" >/dev/null 2>&1 || { log_err "$cmd introuvable"; exit 1; }
 done
+
+# jq n'est requis que pour le mode ISO (résolution des releases GitHub)
+if [[ "${MODE}" == "iso" ]]; then
+  command -v jq >/dev/null 2>&1 || { log_err "jq introuvable (requis pour le mode ISO). Installez-le: apt-get update && apt-get install -y jq"; exit 1; }
+fi
 
 # Auto-détection du bridge si demandé introuvable
 AVAILABLE_BRIDGES=$(ls /sys/class/net 2>/dev/null | grep -E '^vmbr[0-9]+' | sort || true)
