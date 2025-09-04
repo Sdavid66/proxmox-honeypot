@@ -15,6 +15,7 @@ Ce projet fournit un script Bash pour créer automatiquement une VM Ubuntu 22.04
 ## Fichiers
 
 - `provision_honeypot_vm.sh`: script de provisioning principal.
+ - `tpot_iso_provision.sh`: provisioning via ISO officiel T‑Pot (création d'une VM qui boote sur l'ISO).
 
 ## Installation locale (optionnelle)
 
@@ -22,6 +23,26 @@ Copiez les fichiers sur votre nœud PVE (ou clonez ce dossier) puis rendez le sc
 
 ```bash
 chmod +x provision_honeypot_vm.sh
+```
+
+## Alternative: Installation via ISO T‑Pot
+
+Pour déployer une VM qui boote directement sur l'ISO officiel T‑Pot (comme décrit par l'annonce), consultez `README_TPOT_ISO.md`.
+
+Exécution directe depuis GitHub (nécessite `jq` pour `--latest`):
+
+```
+apt-get update && apt-get install -y jq
+bash <(curl -fsSL "https://raw.githubusercontent.com/Sdavid66/proxmox-honeypot/main/tpot_iso_provision.sh?nocache=$(date +%s)") \
+  --name tpot-iso \
+  --storage local-lvm \
+  --iso-storage local \
+  --bridge vmbr0 \
+  --disk 256G \
+  --memory 16384 \
+  --cores 4 \
+  --latest \
+  --start
 ```
 
 ## Utilisation
